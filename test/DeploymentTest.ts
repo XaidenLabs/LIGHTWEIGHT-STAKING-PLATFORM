@@ -100,15 +100,14 @@ describe("WTY Staking System", function () {
 
         // Staking Requirements
         // Plan 0 (Starter): $20 Min USD. 
-        // WTY Price from Oracle (MockRouter): 1 WTY = 0.15 USDT.
-        // Required WTY = ($20 * 1e18) / 0.15 = 133.333... WTY.
+        // WTY Price FIXED: $0.05
+        // Required WTY = ($20 * 1e18) / 0.05 = 400 WTY.
 
         await wtyStaking.connect(user1).stake(0);
 
         const balance = await wtyStaking.getStakingWalletBalance(user1.address);
-        // 2000 - 133.33 = ~1866.66
-        expect(balance).to.be.lt(ethers.parseEther("2000"));
-        expect(balance).to.be.gt(ethers.parseEther("1800"));
+        // 2000 - 400 = 1600
+        expect(balance).to.equal(ethers.parseEther("1600"));
 
         // Check User Stakes
         const userStake = await wtyStaking.userStakes(user1.address, 0);

@@ -1,4 +1,4 @@
-import { ethers, upgrades } from "hardhat";
+import hre, { ethers, upgrades } from "hardhat";
 
 async function main() {
     const [deployer] = await ethers.getSigners();
@@ -9,15 +9,52 @@ async function main() {
     const REWARD_POOL = deployer.address; // Replace with actual
     const TREASURY_WALLET = deployer.address; // Replace with actual
 
-    // Testnet Mock Addresses (Replace with Real ones on BSC)
-    // USDT (BSC Testnet) - Example
-    // Router (PancakeSwap Testnet) - Example
+    const networkName = hre.network.name;
+    let usdtAddress, routerAddress, oldStakingAddress;
 
-    // For deployment, if we don't have them, we might need to deploy mocks OR fail.
-    // Assuming User provides them in .env or we use placeholders.
-    const USDT_ADDRESS = "0x337610d27c682E347C9cD60BD4b3b107C9d34346"; // BSC Testnet USDT
-    const ROUTER_ADDRESS = "0x9Ac64Cc6e4415144C455BD8E4837Fea55603e5c3"; // BSC Testnet Router
-    const OLD_STAKING_ADDRESS = "0x0000000000000000000000000000000000000000"; // REPLACE THIS
+    if (networkName === "hardhat" || networkName === "localhost") {
+        console.log("Local Network detected! Deploying Mocks...");
+
+        // Deploy Mock USDT
+        const MockUSDT = await ethers.getContractFactory("MockUSDT");
+        const mockUsdt = await MockUSDT.deploy();
+        await mockUsdt.waitForDeployment();
+        usdtAddress = await mockUsdt.getAddress();
+        console.log("MockUSDT deployed to:", usdtAddress);
+
+        // Deploy Mock Router
+        const MockRouter = await ethers.getContractFactory("MockRouter");
+        const mockRouter = await MockRouter.deploy();
+        await mockRouter.waitForDeployment();
+        routerAddress = await mockRouter.getAddress();
+        console.log("MockRouter deployed to:", routerAddress);
+
+        // Deploy Mock Old Staking
+        const MockOldStaking = await ethers.getContractFactory("MockOldStaking");
+        const mockOldStaking = await MockOldStaking.deploy();
+        await mockOldStaking.waitForDeployment();
+        oldStakingAddress = await mockOldStaking.getAddress();
+        console.log("MockOldStaking deployed to:", oldStakingAddress);
+    } else {
+        // Live Network Configuration
+
+        if (networkName === "bsc") { // BSC Mainnet
+            console.log("🚀 Deploying to BSC MAINNET");
+            usdtAddress = "0x55d398326f99059fF775485246999027B3197955"; // USDT (Mainnet)
+            routerAddress = "0x10ED43C718714eb63d5aA57B78B54704E256024E"; // PancakeSwap Router (Mainnet)
+        }
+        else { // Default to Testnet
+            console.log("🧪 Deploying to BSC TESTNET");
+            usdtAddress = "0x337610d27c682E347C9cD60BD4b3b107C9d34346"; // USDT (Testnet)
+            routerAddress = "0x9Ac64Cc6e4415144C455BD8E4837Fea55603e5c3"; // Router (Testnet)
+        }
+
+        oldStakingAddress = process.env.OLD_STAKING_ADDRESS || ethers.ZeroAddress;
+
+        if (oldStakingAddress === ethers.ZeroAddress) {
+            console.warn("⚠️ WARNING: Old Staking Address is NOT SET in .env. Migration might fail.");
+        }
+    }
 
     // 1. Deploy WTY Token
     const WityToken = await ethers.getContractFactory("WityToken");
@@ -29,8 +66,8 @@ async function main() {
     const WityStaking = await ethers.getContractFactory("WityStaking");
     const wtyStaking = await upgrades.deployProxy(WityStaking, [
         await wtyToken.getAddress(),
-        USDT_ADDRESS,
-        ROUTER_ADDRESS
+        usdtAddress,
+        routerAddress
     ], { initializer: "initialize" });
     await wtyStaking.waitForDeployment();
     console.log("WityStaking deployed to:", await wtyStaking.getAddress());
@@ -39,7 +76,7 @@ async function main() {
     const WityMigration = await ethers.getContractFactory("WityMigration");
     const wtyMigration = await upgrades.deployProxy(WityMigration, [
         await wtyStaking.getAddress(),
-        OLD_STAKING_ADDRESS
+        oldStakingAddress
     ], { initializer: "initialize" });
     await wtyMigration.waitForDeployment();
     console.log("WityMigration deployed to:", await wtyMigration.getAddress());
@@ -47,7 +84,7 @@ async function main() {
     // 4. Deploy Vault
     const WityVault = await ethers.getContractFactory("WityVault");
     const wtyVault = await upgrades.deployProxy(WityVault, [
-        USDT_ADDRESS,
+        usdtAddress,
         await wtyStaking.getAddress(),
         TREASURY_WALLET
     ], { initializer: "initialize" });
