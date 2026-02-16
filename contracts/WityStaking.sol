@@ -8,19 +8,26 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 interface IUniswapV2Router02 {
-    function getAmountsOut(uint amountIn, address[] calldata path) external view returns (uint[] memory amounts);
+    function getAmountsOut(
+        uint amountIn,
+        address[] calldata path
+    ) external view returns (uint[] memory amounts);
 }
 
-contract WityStaking is Initializable, OwnableUpgradeable, ReentrancyGuardUpgradeable {
+contract WityStaking is
+    Initializable,
+    OwnableUpgradeable,
+    ReentrancyGuardUpgradeable
+{
     using SafeERC20 for IERC20;
 
     struct Plan {
         uint256 id;
         string name;
-        uint256 minStakeUSD;      // e.g. 20
-        uint256 rewardShare;      // e.g. 1
+        uint256 minStakeUSD; // e.g. 20
+        uint256 rewardShare; // e.g. 1
         uint256 activityMultiplier; // e.g. 80 (0.8x * 100), 100 (1.0x), 120 (1.2x)
-        uint256 lockDuration;     // 365 days
+        uint256 lockDuration; // 365 days
     }
 
     struct StakeInfo {
@@ -35,18 +42,27 @@ contract WityStaking is Initializable, OwnableUpgradeable, ReentrancyGuardUpgrad
     IERC20 public stakingToken; // WTY
     address public usdtToken;
     address public uniswapRouter;
-    
+
     // Core Mappings
     mapping(address => uint256) private _stakingWalletBalances; // Restricted "Staking Wallet"
     mapping(address => StakeInfo[]) public userStakes;
     mapping(address => bool) public isAuthCaller; // Migration/Vault contracts
 
     Plan[] public plans;
-    
+
     uint256 public totalShares;
 
-    event DepositToWallet(address indexed user, uint256 amount, address indexed caller);
-    event Staked(address indexed user, uint256 planId, uint256 amount, uint256 shares);
+    event DepositToWallet(
+        address indexed user,
+        uint256 amount,
+        address indexed caller
+    );
+    event Staked(
+        address indexed user,
+        uint256 planId,
+        uint256 amount,
+        uint256 shares
+    );
     event Withdrawn(address indexed user, uint256 stakeIndex);
     event RewardPaid(address indexed user, uint256 reward);
 
@@ -56,20 +72,20 @@ contract WityStaking is Initializable, OwnableUpgradeable, ReentrancyGuardUpgrad
     }
 
     function initialize(
-        address _stakingToken, 
+        address _stakingToken,
         address _usdtToken,
         address _router
     ) public initializer {
         __Ownable_init(msg.sender);
         __ReentrancyGuard_init();
-        
+
         stakingToken = IERC20(_stakingToken);
         usdtToken = _usdtToken;
         uniswapRouter = _router;
-        
+
         // Initialize 7 Plans
         uint256 YEAR = 365 days;
-        
+
         plans.push(Plan(0, "Starter", 20, 1, 80, YEAR));
         plans.push(Plan(1, "Basic", 50, 3, 100, YEAR));
         plans.push(Plan(2, "Growth", 100, 7, 120, YEAR));
@@ -83,7 +99,9 @@ contract WityStaking is Initializable, OwnableUpgradeable, ReentrancyGuardUpgrad
         isAuthCaller[caller] = isAuth;
     }
 
-    function getStakingWalletBalance(address user) external view returns (uint256) {
+    function getStakingWalletBalance(
+        address user
+    ) external view returns (uint256) {
         return _stakingWalletBalances[user];
     }
 
@@ -92,27 +110,21 @@ contract WityStaking is Initializable, OwnableUpgradeable, ReentrancyGuardUpgrad
         _stakingWalletBalances[user] += amount;
         emit DepositToWallet(user, amount, msg.sender);
     }
-    
+
     // --- Staking Logic ---
 
     // Price Oracle: WTY / USDT
-    function getWtyPriceInUsd() public view returns (uint256) {
-        if (uniswapRouter == address(0)) {
-            return 150000000000000000;
-        }
-        
-        address[] memory path = new address[](2);
-        path[0] = address(stakingToken);
-        path[1] = usdtToken;
-        
-        try IUniswapV2Router02(uniswapRouter).getAmountsOut(1e18, path) returns (uint[] memory amounts) {
-            return amounts[1];
-        } catch {
-             return 150000000000000000;
-        }
+    uint256 public constant FIXED_WTY_PRICE = 50000000000000000; // $0.05
+
+    // Price Oracle: WTY / USDT
+    // FIXED: Use constant price to prevent arbitrage against Vault
+    function getWtyPriceInUsd() public pure returns (uint256) {
+        return FIXED_WTY_PRICE;
     }
 
-    function getRequiredWtyForPlan(uint256 planId) public view returns (uint256) {
+    function getRequiredWtyForPlan(
+        uint256 planId
+    ) public view returns (uint256) {
         Plan memory plan = plans[planId];
         uint256 price = getWtyPriceInUsd();
         // Adjust for USDT decimals if usually 18 on BSC.
@@ -123,25 +135,30 @@ contract WityStaking is Initializable, OwnableUpgradeable, ReentrancyGuardUpgrad
     function stake(uint256 planId) external nonReentrant {
         require(planId < plans.length, "Invalid Plan");
         Plan memory plan = plans[planId];
-        
+
         uint256 requiredAmount = getRequiredWtyForPlan(planId);
-        
-        require(_stakingWalletBalances[msg.sender] >= requiredAmount, "Insufficient Staking Wallet Balance");
-        
+
+        require(
+            _stakingWalletBalances[msg.sender] >= requiredAmount,
+            "Insufficient Staking Wallet Balance"
+        );
+
         _stakingWalletBalances[msg.sender] -= requiredAmount;
-        
-        userStakes[msg.sender].push(StakeInfo({
-            planId: planId,
-            amount: requiredAmount,
-            startTime: block.timestamp,
-            lastClaimTime: block.timestamp,
-            endTime: block.timestamp + plan.lockDuration,
-            active: true
-        }));
-        
-        uint256 shares = plan.rewardShare; 
+
+        userStakes[msg.sender].push(
+            StakeInfo({
+                planId: planId,
+                amount: requiredAmount,
+                startTime: block.timestamp,
+                lastClaimTime: block.timestamp,
+                endTime: block.timestamp + plan.lockDuration,
+                active: true
+            })
+        );
+
+        uint256 shares = plan.rewardShare;
         totalShares += shares;
-        
+
         emit Staked(msg.sender, planId, requiredAmount, shares);
     }
 
