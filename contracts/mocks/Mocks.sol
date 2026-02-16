@@ -70,15 +70,20 @@ contract MockOldStaking {
 }
 
 contract MockRouter {
+    uint256 public price = 15; // 0.15 (scaled by 100)
+
+    function setPrice(uint256 _price) external {
+        price = _price;
+    }
+
     function getAmountsOut(
         uint amountIn,
         address[] calldata path
-    ) external pure returns (uint[] memory amounts) {
+    ) external view returns (uint[] memory amounts) {
         amounts = new uint[](2);
         amounts[0] = amountIn;
-        // Mock Price: 1 WTY = 0.15 USDT
-        // If 1e18 WTY in, return 0.15e18 USDT
-        amounts[1] = (amountIn * 15) / 100;
+        // Mock Price: Uses stored price
+        amounts[1] = (amountIn * price) / 100;
         return amounts;
     }
 }
